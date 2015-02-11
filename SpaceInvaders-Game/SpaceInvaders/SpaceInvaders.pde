@@ -18,16 +18,42 @@ import processing.serial.*;
 // Read from the Serial port
 Serial myPort;        
 
+int BACKGROUND_STARS = 200; 
+
 Conf conf;
 PImage filtre;
 PFont fontA;
 Ship ship;
 Fleet fleet;
-Laser laser;
+PImage shipImage;
+
+PImage bossImage1;
+PImage bossImage2;
+
+PImage butterflyImage1;
+PImage butterflyImage2; 
+
+PImage beeImage1; 
+PImage beeImage2; 
+
+PImage saucer; 
+
+//Laser laser;
+
+// Create multiple lasers -- why only one?
+ArrayList<Laser> goodLasers;
+ArrayList<Laser> newGoodLasers;
+ArrayList<Laser> goodLasersToRemove; 
+
 MotherShip motherShip;
 ArrayList<Ship> livesFeedBck;
 ArrayList<Sheild> sheilds;
 
+//smoothing factor
+float alpha = 0.7; 
+int WINDOW_SIZE = 8; 
+
+//periodic smoothing 
 int[][] sensorRanges = {
   {
     -10, 10
@@ -49,11 +75,15 @@ int[][] sensorRanges = {
 ArrayList<Float> xValues = new ArrayList<Float>();
 ArrayList<Float> yValues = new ArrayList<Float>();
 ArrayList<Float> zValues = new ArrayList<Float>();
+ArrayList<Float> mags = new ArrayList<Float>(); 
+ArrayList<Float> yValuesSmooth = new ArrayList<Float>();
+
+float smoothY = 0; 
 
 void setup() {
   size(1280, 800);
   
-   // List all the available serial ports
+  // List all the available serial ports
   println(Serial.list());
   myPort = new Serial(this, Serial.list()[2], 9600);
 
@@ -64,34 +94,75 @@ void setup() {
   initGame();
   filtre = loadImage("filtrejeu.tga");
   fontA = loadFont("Courier-36.vlw");
+  shipImage = loadImage("ship.png");
+  bossImage1 = loadImage("boss.png");
+  bossImage2 = loadImage("boss2.png");
+  butterflyImage1 = loadImage("butterfly.png");
+  butterflyImage2 = loadImage("butterfly2.png");
+  beeImage1 = loadImage("bee.png");
+  beeImage2 = loadImage("bee2.png");
+  saucer = loadImage("saucer.png"); 
+  
+  goodLasers = new ArrayList<Laser>();
+  goodLasersToRemove = new ArrayList<Laser>();
+  newGoodLasers = new ArrayList<Laser>();
 }
 
 void draw() {
+  
+  
+  
   displayScore();
   if (conf.lives <= 0) {
     gameOver();
     return;
   }
-  laser.display();
+  //laser.display();
   ship.display();
   fleet.display();
   motherShip.display();
 
   fleet.update();
-  laser.update();
+  
   updateShip();
   updateMother();
 
   for (Sheild s : sheilds) {
     s.display();
-    s.contact(laser);
+    //s.contact(laser);
     s.contactList(fleet.getLasers());
     s.contactInvader(fleet.getInvaders());
   }
 
   conf.lives = (fleet.checkShipContact(ship))?0:conf.lives;
-  conf.score += motherShip.checkContact(laser);
-  conf.score += fleet.checkLaserContact(laser);
+  
+  goodLasersToRemove.clear(); 
+  
+  for (Laser laser: newGoodLasers) {
+    goodLasers.add(laser);
+  }
+  
+  newGoodLasers.clear();
+  
+  for (Laser laser: goodLasers) {
+    laser.display();
+    laser.update();
+    int motherShipHitScore = motherShip.checkContact(laser); 
+    int fleetShipHitScore = fleet.checkLaserContact(laser); 
+     
+    conf.score += motherShipHitScore;
+    conf.score += fleetShipHitScore; 
+    
+    if (motherShipHitScore > 0 || fleetShipHitScore > 0) {
+       //goodLasers.remove(laser); 
+       goodLasersToRemove.add(laser);
+    }
+  }
+  
+  for (Laser laser:goodLasersToRemove) {
+    goodLasers.remove(laser); 
+  }
+  
   for (Laser invaderLaser : fleet.getLasers ()) {
     if (ship.contact(invaderLaser)) {
       invaderLaser.setaLive(false);
@@ -102,12 +173,22 @@ void draw() {
   if (fleet.everyInvadersAreDead()) {
     fleet = new Fleet();
   }
+  
+  //draw background!
+  fill(255, 255, 255);
+  stroke(255, 255, 255); 
+  for (int i = 0; i < BACKGROUND_STARS; i++) {
+     
+     int randX = int(random(1280));
+     int randY = int(random(800)); 
+     point(randX, randY);
+  }
 
   //image(filtre, 0, -90);
 }
 
 
-/** Space Invader Clone Clone **/
+/** Space Invader Clone Clone and magnetic sensing algorithm **/
 /** Code by Karthik and Raul **/
 
 // For every line written by Arduino of the form triplets -- "type, channel, value..."
@@ -133,44 +214,80 @@ void serialEvent (Serial myPort) {
 
       if (inByte < -500)
         inByte = -500;
-    
+
       if (inByte > 500)
-        inByte = 500;
-        
+        inByte = 500;            
+
       int sign = 1; 
       if (inByte < 0) 
         sign = -1;   
-       
+      
       // Reading adjusted to the x, y, z distances 
       inByte = sign*pow(abs(inByte), 1/3.0); 
       
       if (i == 0) {
-        xValues.add(inByte); 
+        xValues.add(inByte);
       }
-      
+
       if (i == 1) {
-        yValues.add(inByte); 
+        //smoothY = alpha*inByte + (1-alpha)*smoothY; 
+        yValues.add(inByte);
+        
+        float sum = 0; 
+        int c = 0; 
+        for (int j = 0; j < WINDOW_SIZE; j++) {
+          if (j < yValues.size()) {
+            sum += yValues.get(yValues.size() - 1 - j);
+            c += 1; 
+          }
+        }
+        if (c!=0){
+          float value = sum/c; 
+          yValuesSmooth.add(value); 
+        } else {
+          yValuesSmooth.add(inByte); 
+        }
+        
       }
-      
+
       if (i == 2) {
-         zValues.add(inByte);  
+        zValues.add(inByte);
       }
     }
-    
-    if (yValues.size() > 2) {
-      float currentValue = yValues.get(yValues.size() - 1);
-      float prevValue = yValues.get(yValues.size() - 2); 
+
+    float magnitude = pow(pow(float(list[2]), 2) + pow(float(list[5]), 2) + pow(float(list[8]), 2), 0.5);
+
+    mags.add(magnitude); 
+
+    if (yValues.size() > 3) {
+      //float currentValue = yValues.get(yValues.size() - 1);
+      //float prevValue = yValues.get(yValues.size() - 2); 
       
-      
-      println(currentValue - prevValue); 
-      
-      if (currentValue - prevValue > 0) 
-        ship.moveRight();
-          
-      if (currentValue - prevValue < 0)
-        ship.moveLeft(); 
+      float currentValue = yValuesSmooth.get(yValuesSmooth.size() - 1);
+      float prevValue = yValuesSmooth.get(yValuesSmooth.size() - 2); 
+
+      float current = mags.get(mags.size() - 1); 
+      float prev = mags.get(mags.size() - 2); 
+      float preprev = mags.get(mags.size() - 3); 
+
+      if (abs(current - prev) + abs(prev - preprev) > 30) {
+        Laser laser = new Laser(ship.location.x);
+        newGoodLasers.add(laser); 
         
-        
+      } else {
+                
+        if (currentValue - prevValue > 0) {
+          int value = int(abs(currentValue - prevValue)* 30) + 10; 
+          for (int i = 0; i < value; i++)
+            ship.moveRight();
+        }
+
+        if (currentValue - prevValue < 0) {
+          int value = int(abs(currentValue - prevValue)* 30) + 10; 
+          for (int i = 0; i < value; i++)
+            ship.moveLeft();
+        }
+      }
     }
     counter = 0;
   }
@@ -191,9 +308,9 @@ void updateShip() {
     ship.moveLeft();
   }
   if (conf.Ti == true) {
-    if (!laser.aLive) {
-      laser = new Laser(ship.location.x);
-    }
+    //if (!laser.aLive) {
+      //laser = new Laser(ship.location.x);
+    //}
   }
 }
 
@@ -226,7 +343,7 @@ void updateMother() {
   if (motherShip.aLive) {
     motherShip.update();
   } else {
-    if (frameCount % 60 == 0 && random(100) > 85) {
+    if (frameCount % 60 == 0 && random(100) > 45) {
       motherShip.launchMotherShip(random(100) > 50);
     }
   }
@@ -242,8 +359,8 @@ void initializeSheild() {
 void initGame() {
   ship = new Ship();
   fleet = new Fleet();
-  laser = new Laser( ship.location.x);
-  laser.setaLive(false);
+  //laser = new Laser( ship.location.x);
+  //laser.setaLive(false);
   motherShip = new MotherShip();
   initializeSheild();
   conf.score = 0;
@@ -262,8 +379,8 @@ void displayScore() {
   text("Score: ", width / 20, height / 15);
   text(conf.score, width / 20 + 60, height / 15);
   strokeWeight(2);
-  stroke(0, 255, 0);
-  line(0, 9 * height / 10 + 20, width, 9 * height / 10 + 20);
+  //stroke(0, 255, 0);
+  //line(0, 9 * height / 10 + 20, width, 9 * height / 10 + 20);
   for (int i = 0; i < conf.lives; i++) {
     Ship ship = livesFeedBck.get(i);
     ship.display();
@@ -277,7 +394,7 @@ void gameOver() {
   if (mousePressed) {
     initGame();
   }
-  image(filtre, 0, -90);
+  //image(filtre, 0, -90);
 }
 
 /** Space Invader Clone **/
@@ -560,7 +677,7 @@ class Laser extends Entity {
   void display() {
     if (!aLive)
       return;
-    stroke(255);
+    stroke(255, 10, 10);
     if (type == 1) {
       strokeWeight(2);
       line(location.x, location.y, location.x, location.y - 10);
@@ -600,20 +717,21 @@ class MotherShip extends Entity {
       noStroke();
       fill(255, 10, 10);
       rectMode(CORNER);
-      rect(-6 + location.x, -6 + location.y, 12, 2);
-      rect(-10 + location.x, -4 + location.y, 20, 2);
-      rect(-12 + location.x, -2 + location.y, 24, 2);
-      rect(-14 + location.x, 0 + location.y, 4, 2);
-      rect(-8 + location.x, 0 + location.y, 4, 2);
-      rect(-2 + location.x, 0 + location.y, 4, 2);
-      rect(4 + location.x, 0 + location.y, 4, 2);
-      rect(10 + location.x, 0 + location.y, 4, 2);
-      rect(-16 + location.x, 2 + location.y, 32, 2);
-      rect(-12 + location.x, 4 + location.y, 6, 2);
-      rect(-2 + location.x, 4 + location.y, 4, 2);
-      rect(6 + location.x, 4 + location.y, 6, 2);
-      rect(-10 + location.x, 6 + location.y, 2, 2);
-      rect(8 + location.x, 6 + location.y, 2, 2);
+      image(saucer, location.x - 30, location.y - 30 , 60, 60);
+//      rect(-6 + location.x, -6 + location.y, 12, 2);
+//      rect(-10 + location.x, -4 + location.y, 20, 2);
+//      rect(-12 + location.x, -2 + location.y, 24, 2);
+//      rect(-14 + location.x, 0 + location.y, 4, 2);
+//      rect(-8 + location.x, 0 + location.y, 4, 2);
+//      rect(-2 + location.x, 0 + location.y, 4, 2);
+//      rect(4 + location.x, 0 + location.y, 4, 2);
+//      rect(10 + location.x, 0 + location.y, 4, 2);
+//      rect(-16 + location.x, 2 + location.y, 32, 2);
+//      rect(-12 + location.x, 4 + location.y, 6, 2);
+//      rect(-2 + location.x, 4 + location.y, 4, 2);
+//      rect(6 + location.x, 4 + location.y, 6, 2);
+//      rect(-10 + location.x, 6 + location.y, 2, 2);
+//      rect(8 + location.x, 6 + location.y, 2, 2);
     }
   }
 
@@ -720,7 +838,7 @@ class Sheild extends Entity {
 
   public void display() {
     noStroke();
-    fill(0, 255, 0);
+    fill(232, 235, 237);
     rectMode(CENTER);
     for (int i = 0; i < 15; i++) {
       for (int j = 0; j < 20; j++) {
@@ -821,14 +939,18 @@ class Ship extends Entity {
     float x = location.x;
     float y = location.y;
     noStroke();
-    fill(0, 255, 0);
+    //fill(0, 255, 0);
     rectMode(CENTER);
-    rect(x, y, 30, 14);
-    rect(x, y - 10, 6, 6);
-    rect(x, y - 14, 2, 2);
-    fill(0);
-    rect(x - 14, y - 6, 2, 2);
-    rect(x + 14, y - 6, 2, 2);
+    
+    //draw ship image
+    image(shipImage, x-20, y-20, 40, 40); 
+//    
+//    rect(x, y, 30, 14);
+//    rect(x, y - 10, 6, 6);
+//    rect(x, y - 14, 2, 2);
+//    fill(0, 0, 0);
+//    rect(x - 14, y - 6, 2, 2);
+//    rect(x + 14, y - 6, 2, 2);
   }
 
   /**
@@ -873,81 +995,45 @@ class SpaceInvader extends Entity {
     if (type == 1) {
       noStroke();
       fill(255);
-      rectMode(CORNER);
-      rect(-4 + spX, -8 + spY, 8, 2);
-      rect(-10 + spX, -6 + spY, 20, 2);
-      rect(-12 + spX, -4 + spY, 24, 2);
-      rect(-12 + spX, -2 + spY, 6, 2);
-      rect(-2 + spX, -2 + spY, 4, 2);
-      rect(6 + spX, -2 + spY, 6, 2);
-      rect(-12 + spX, spY, 24, 2);
-      rect(2 + spX, 2 + spY, 4, 2);
-      rect(-6 + spX, 2 + spY, 4, 2);
-      rect(-2 + spX, 4 + spY, 4, 2);
+      
 
       if (flag == false) {
-        rect(-8 + spX, 4 + spY, 4, 2);
-        rect(4 + spX, 4 + spY, 4, 2);
-        rect(-12 + spX, 6 + spY, 4, 2);
-        rect(8 + spX, 6 + spY, 4, 2);
+
+        image(beeImage2,  spX - 15, spY - 15, 30, 30);
+      
       } else {
-        rect(-10 + spX, 4 + spY, 4, 2);
-        rect(6 + spX, 4 + spY, 4, 2);
-        rect(-8 + spX, 6 + spY, 4, 2);
-        rect(4 + spX, 6 + spY, 4, 2);
+
+        image(beeImage1, spX - 15, spY - 15, 30, 30);
+      
       }
     }
     if (type == 2) {
       noStroke();
       fill(255);
       rectMode(CORNER);
-      rect(-7 + spX, -8 + spY, 2, 2);
-      rect(5 + spX, -8 + spY, 2, 2);
-      rect(-5 + spX, -6 + spY, 2, 2);
-      rect(3 + spX, -6 + spY, 2, 2);
-      rect(-7 + spX, -4 + spY, 14, 2);
-      rect(-7 + spX, -4 + spY, 2, 10);
-      rect(5 + spX, -4 + spY, 2, 10);
-      rect(-7 + spX, spY, 14, 4);
-      rect(-3 + spX, -2 + spY, 6, 2);
-      rect(-9 + spX, -2 + spY, 2, 4);
-      rect(7 + spX, -2 + spY, 2, 4);
+      
       if (flag == false) {
-        rect(-11 + spX, spY, 2, 6);
-        rect(9 + spX, spY, 2, 6);
-        rect(.5f * 2 + spX, 6 + spY, 4, 2);
-        rect(-5 + spX, 6 + spY, 4, 2);
+
+        image(butterflyImage2,  spX - 15, spY - 15, 30, 30);
+      
       } else {
-        rect(-11 + spX, -6 + spY, 2, 6);
-        rect(9 + spX, -6 + spY, 2, 6);
-        rect(7 + spX, 6 + spY, 2, 2);
-        rect(-9 + spX, 6 + spY, 2, 2);
+
+        image(butterflyImage1, spX - 15, spY - 15, 30, 30);
+      
       }
     }
     if (type == 3) {
       noStroke();
       fill(255);
       rectMode(CORNER);
-      rect(-2 + spX, spY - 8, 4, 2);
-      rect(-4 + spX, spY - 6, 8, 2);
-      rect(-6 + spX, spY - 4, 12, 2);
-      rect(-8 + spX, spY - 2, 4, 2);
-      rect(-2 + spX, spY - 2, 4, 2);
-      rect(4 + spX, spY - 2, 4, 2);
-      rect(-8 + spX, spY, 16, 2);
-      rect(-4 + spX, 2 + spY, 2, 2);
-      rect(2 + spX, 2 + spY, 2, 2);
-      rect(-6 + spX, 4 + spY, 2, 2);
-      rect(4 + spX, 4 + spY, 2, 2);
-      rect(-4 + spX, 6 + spY, 2, 2);
-      rect(2 + spX, 6 + spY, 2, 2);
-      rect(-4 + spX, 6 + spY, 2, 2);
-      rect(2 + spX, 6 + spY, 2, 2);
-
       if (flag == false) {
-        rect(-8 + spX, 6 + spY, 2, 2);
-        rect(6 + spX, 6 + spY, 2, 2);
-        rect(-2 + spX, 4 + spY, 4, 2);
+
+        image(bossImage2,  spX - 15, spY - 15, 30, 30);
+      
+      } else {
+
+        image(bossImage1, spX - 15, spY - 15, 30, 30);
+      
       }
     }
   }

@@ -106,5 +106,5 @@ void loop(void)
   
   Serial.println("X,0," + String(event.magnetic.x) + ",Y,1," + String(event.magnetic.y) + ",Z,2," + String(event.magnetic.z) + ",H,3," + String(headingDegrees)); 
  
-  delay(100);
+  delay(50);
 }

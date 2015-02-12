@@ -26,6 +26,7 @@ PFont fontA;
 Ship ship;
 Fleet fleet;
 PImage shipImage;
+float SHIP_MOVEMENT_THRESHOLD = 0.01;
 
 PImage bossImage1;
 PImage bossImage2;
@@ -44,6 +45,7 @@ PImage saucer;
 ArrayList<Laser> goodLasers;
 ArrayList<Laser> newGoodLasers;
 ArrayList<Laser> goodLasersToRemove; 
+int LASER_THRESHOLD = 60; 
 
 MotherShip motherShip;
 ArrayList<Ship> livesFeedBck;
@@ -51,26 +53,7 @@ ArrayList<Sheild> sheilds;
 
 //smoothing factor
 float alpha = 0.7; 
-int WINDOW_SIZE = 8; 
-
-//periodic smoothing 
-int[][] sensorRanges = {
-  {
-    -10, 10
-  }
-  , {
-    -10, 10
-  }
-  , {
-    -10, 10
-  }
-  , {
-    -360, 360
-  }
-  , {
-    0, 360
-  }
-};
+int WINDOW_SIZE = 200; 
 
 ArrayList<Float> xValues = new ArrayList<Float>();
 ArrayList<Float> yValues = new ArrayList<Float>();
@@ -82,7 +65,7 @@ float smoothY = 0;
 
 void setup() {
   size(1280, 800);
-  
+
   // List all the available serial ports
   println(Serial.list());
   myPort = new Serial(this, Serial.list()[2], 9600);
@@ -102,16 +85,16 @@ void setup() {
   beeImage1 = loadImage("bee.png");
   beeImage2 = loadImage("bee2.png");
   saucer = loadImage("saucer.png"); 
-  
+
   goodLasers = new ArrayList<Laser>();
   goodLasersToRemove = new ArrayList<Laser>();
   newGoodLasers = new ArrayList<Laser>();
 }
 
 void draw() {
-  
-  
-  
+
+
+
   displayScore();
   if (conf.lives <= 0) {
     gameOver();
@@ -123,7 +106,7 @@ void draw() {
   motherShip.display();
 
   fleet.update();
-  
+
   updateShip();
   updateMother();
 
@@ -135,34 +118,34 @@ void draw() {
   }
 
   conf.lives = (fleet.checkShipContact(ship))?0:conf.lives;
-  
+
   goodLasersToRemove.clear(); 
-  
-  for (Laser laser: newGoodLasers) {
+
+  for (Laser laser : newGoodLasers) {
     goodLasers.add(laser);
   }
-  
+
   newGoodLasers.clear();
-  
-  for (Laser laser: goodLasers) {
+
+  for (Laser laser : goodLasers) {
     laser.display();
     laser.update();
     int motherShipHitScore = motherShip.checkContact(laser); 
     int fleetShipHitScore = fleet.checkLaserContact(laser); 
-     
+
     conf.score += motherShipHitScore;
     conf.score += fleetShipHitScore; 
-    
+
     if (motherShipHitScore > 0 || fleetShipHitScore > 0) {
-       //goodLasers.remove(laser); 
-       goodLasersToRemove.add(laser);
+      //goodLasers.remove(laser); 
+      goodLasersToRemove.add(laser);
     }
   }
-  
-  for (Laser laser:goodLasersToRemove) {
-    goodLasers.remove(laser); 
+
+  for (Laser laser : goodLasersToRemove) {
+    goodLasers.remove(laser);
   }
-  
+
   for (Laser invaderLaser : fleet.getLasers ()) {
     if (ship.contact(invaderLaser)) {
       invaderLaser.setaLive(false);
@@ -173,15 +156,15 @@ void draw() {
   if (fleet.everyInvadersAreDead()) {
     fleet = new Fleet();
   }
-  
+
   //draw background!
   fill(255, 255, 255);
   stroke(255, 255, 255); 
   for (int i = 0; i < BACKGROUND_STARS; i++) {
-     
-     int randX = int(random(1280));
-     int randY = int(random(800)); 
-     point(randX, randY);
+
+    int randX = int(random(1280));
+    int randY = int(random(800)); 
+    point(randX, randY);
   }
 
   //image(filtre, 0, -90);
@@ -205,7 +188,34 @@ void serialEvent (Serial myPort) {
     // type defines whether its Analog or Digital -- "A" or "D"
     // channel defines the sensor kind
     // value is the value read
+
+    float magnitude = pow(pow(float(list[2]), 2) + pow(float(list[5]), 2) + pow(float(list[8]), 2), 0.5);
+
+    mags.add(magnitude); 
+
+    boolean lasershot = false; 
+    if (mags.size() > 3) {
+      //float currentValue = yValues.get(yValues.size() - 1);
+      //float prevValue = yValues.get(yValues.size() - 2); 
+
+
+      float current = mags.get(mags.size() - 1); 
+      float prev = mags.get(mags.size() - 2); 
+      float preprev = mags.get(mags.size() - 3); 
+
+      if (abs(current - prev) + abs(prev - preprev) > LASER_THRESHOLD) {
+
+        Laser laser = new Laser(ship.location.x);
+        newGoodLasers.add(laser); 
+        lasershot = true;
+      }
+    }
+
+    if (lasershot)
+      return; 
+
     int counter = 0; 
+
     for (int i = 0; i < 3; i++) {
       String type = list[counter];
       int index = int(list[counter+1]);
@@ -221,10 +231,10 @@ void serialEvent (Serial myPort) {
       int sign = 1; 
       if (inByte < 0) 
         sign = -1;   
-      
+
       // Reading adjusted to the x, y, z distances 
       inByte = sign*pow(abs(inByte), 1/3.0); 
-      
+
       if (i == 0) {
         xValues.add(inByte);
       }
@@ -232,22 +242,21 @@ void serialEvent (Serial myPort) {
       if (i == 1) {
         //smoothY = alpha*inByte + (1-alpha)*smoothY; 
         yValues.add(inByte);
-        
+
         float sum = 0; 
         int c = 0; 
         for (int j = 0; j < WINDOW_SIZE; j++) {
           if (j < yValues.size()) {
             sum += yValues.get(yValues.size() - 1 - j);
-            c += 1; 
+            c += 1;
           }
         }
-        if (c!=0){
+        if (c!=0) {
           float value = sum/c; 
-          yValuesSmooth.add(value); 
+          yValuesSmooth.add(value);
         } else {
-          yValuesSmooth.add(inByte); 
+          yValuesSmooth.add(inByte);
         }
-        
       }
 
       if (i == 2) {
@@ -255,41 +264,26 @@ void serialEvent (Serial myPort) {
       }
     }
 
-    float magnitude = pow(pow(float(list[2]), 2) + pow(float(list[5]), 2) + pow(float(list[8]), 2), 0.5);
-
-    mags.add(magnitude); 
-
     if (yValues.size() > 3) {
-      //float currentValue = yValues.get(yValues.size() - 1);
-      //float prevValue = yValues.get(yValues.size() - 2); 
-      
+
       float currentValue = yValuesSmooth.get(yValuesSmooth.size() - 1);
       float prevValue = yValuesSmooth.get(yValuesSmooth.size() - 2); 
+      float prevprevValue = yValuesSmooth.get(yValuesSmooth.size() - 3); 
 
-      float current = mags.get(mags.size() - 1); 
-      float prev = mags.get(mags.size() - 2); 
-      float preprev = mags.get(mags.size() - 3); 
+      println(currentValue - prevValue);
 
-      if (abs(current - prev) + abs(prev - preprev) > 30) {
-        Laser laser = new Laser(ship.location.x);
-        newGoodLasers.add(laser); 
-        
-      } else {
-                
-        if (currentValue - prevValue > 0) {
-          int value = int(abs(currentValue - prevValue)* 30) + 10; 
-          for (int i = 0; i < value; i++)
-            ship.moveRight();
-        }
+      if (currentValue - prevValue > SHIP_MOVEMENT_THRESHOLD ) {
+        int value = int(abs(currentValue - prevValue)*abs(currentValue - prevValue)* 10) + 10; 
+        for (int i = 0; i < value; i++)
+          ship.moveRight();
+      }
 
-        if (currentValue - prevValue < 0) {
-          int value = int(abs(currentValue - prevValue)* 30) + 10; 
-          for (int i = 0; i < value; i++)
-            ship.moveLeft();
-        }
+      if (currentValue - prevValue < -SHIP_MOVEMENT_THRESHOLD ) {
+        int value = int(abs(currentValue - prevValue)*abs(currentValue - prevValue)* 10) + 10; 
+        for (int i = 0; i < value; i++)
+          ship.moveLeft();
       }
     }
-    counter = 0;
   }
 }
 
@@ -309,7 +303,7 @@ void updateShip() {
   }
   if (conf.Ti == true) {
     //if (!laser.aLive) {
-      //laser = new Laser(ship.location.x);
+    //laser = new Laser(ship.location.x);
     //}
   }
 }
@@ -717,21 +711,21 @@ class MotherShip extends Entity {
       noStroke();
       fill(255, 10, 10);
       rectMode(CORNER);
-      image(saucer, location.x - 30, location.y - 30 , 60, 60);
-//      rect(-6 + location.x, -6 + location.y, 12, 2);
-//      rect(-10 + location.x, -4 + location.y, 20, 2);
-//      rect(-12 + location.x, -2 + location.y, 24, 2);
-//      rect(-14 + location.x, 0 + location.y, 4, 2);
-//      rect(-8 + location.x, 0 + location.y, 4, 2);
-//      rect(-2 + location.x, 0 + location.y, 4, 2);
-//      rect(4 + location.x, 0 + location.y, 4, 2);
-//      rect(10 + location.x, 0 + location.y, 4, 2);
-//      rect(-16 + location.x, 2 + location.y, 32, 2);
-//      rect(-12 + location.x, 4 + location.y, 6, 2);
-//      rect(-2 + location.x, 4 + location.y, 4, 2);
-//      rect(6 + location.x, 4 + location.y, 6, 2);
-//      rect(-10 + location.x, 6 + location.y, 2, 2);
-//      rect(8 + location.x, 6 + location.y, 2, 2);
+      image(saucer, location.x - 30, location.y - 30, 60, 60);
+      //      rect(-6 + location.x, -6 + location.y, 12, 2);
+      //      rect(-10 + location.x, -4 + location.y, 20, 2);
+      //      rect(-12 + location.x, -2 + location.y, 24, 2);
+      //      rect(-14 + location.x, 0 + location.y, 4, 2);
+      //      rect(-8 + location.x, 0 + location.y, 4, 2);
+      //      rect(-2 + location.x, 0 + location.y, 4, 2);
+      //      rect(4 + location.x, 0 + location.y, 4, 2);
+      //      rect(10 + location.x, 0 + location.y, 4, 2);
+      //      rect(-16 + location.x, 2 + location.y, 32, 2);
+      //      rect(-12 + location.x, 4 + location.y, 6, 2);
+      //      rect(-2 + location.x, 4 + location.y, 4, 2);
+      //      rect(6 + location.x, 4 + location.y, 6, 2);
+      //      rect(-10 + location.x, 6 + location.y, 2, 2);
+      //      rect(8 + location.x, 6 + location.y, 2, 2);
     }
   }
 
@@ -941,16 +935,16 @@ class Ship extends Entity {
     noStroke();
     //fill(0, 255, 0);
     rectMode(CENTER);
-    
+
     //draw ship image
     image(shipImage, x-20, y-20, 40, 40); 
-//    
-//    rect(x, y, 30, 14);
-//    rect(x, y - 10, 6, 6);
-//    rect(x, y - 14, 2, 2);
-//    fill(0, 0, 0);
-//    rect(x - 14, y - 6, 2, 2);
-//    rect(x + 14, y - 6, 2, 2);
+    //    
+    //    rect(x, y, 30, 14);
+    //    rect(x, y - 10, 6, 6);
+    //    rect(x, y - 14, 2, 2);
+    //    fill(0, 0, 0);
+    //    rect(x - 14, y - 6, 2, 2);
+    //    rect(x + 14, y - 6, 2, 2);
   }
 
   /**
@@ -995,31 +989,27 @@ class SpaceInvader extends Entity {
     if (type == 1) {
       noStroke();
       fill(255);
-      
+
 
       if (flag == false) {
 
-        image(beeImage2,  spX - 15, spY - 15, 30, 30);
-      
+        image(beeImage2, spX - 15, spY - 15, 30, 30);
       } else {
 
         image(beeImage1, spX - 15, spY - 15, 30, 30);
-      
       }
     }
     if (type == 2) {
       noStroke();
       fill(255);
       rectMode(CORNER);
-      
+
       if (flag == false) {
 
-        image(butterflyImage2,  spX - 15, spY - 15, 30, 30);
-      
+        image(butterflyImage2, spX - 15, spY - 15, 30, 30);
       } else {
 
         image(butterflyImage1, spX - 15, spY - 15, 30, 30);
-      
       }
     }
     if (type == 3) {
@@ -1028,12 +1018,10 @@ class SpaceInvader extends Entity {
       rectMode(CORNER);
       if (flag == false) {
 
-        image(bossImage2,  spX - 15, spY - 15, 30, 30);
-      
+        image(bossImage2, spX - 15, spY - 15, 30, 30);
       } else {
 
         image(bossImage1, spX - 15, spY - 15, 30, 30);
-      
       }
     }
   }
